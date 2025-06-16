@@ -5,23 +5,36 @@ use axum::{
 };
 use serde::Deserialize;
 use std::sync::Arc;
+use validator::Validate;
 
 use crate::{
     domain::book::Book,
     app::book_repository::BookRepository,
 };
 
-#[derive(Deserialize)]
+/// POST /books con validaciones
+#[derive(Deserialize, Validate)]
 pub struct CreateBook {
+    #[validate(length(min = 1, message = "Title cannot be empty"))]
     pub title: String,
+
+    #[validate(length(min = 1, message = "Author cannot be empty"))]
     pub author: String,
+
+    #[validate(range(min = 0, message = "Published year must be positive"))]
     pub published_year: Option<i32>,
 }
 
-#[derive(Deserialize)]
+///  PUT /books/:id con validaciones
+#[derive(Deserialize, Validate)]
 pub struct UpdateBook {
+    #[validate(length(min = 1, message = "Title cannot be empty"))]
     pub title: Option<String>,
+
+    #[validate(length(min = 1, message = "Author cannot be empty"))]
     pub author: Option<String>,
+
+    #[validate(range(min = 0, message = "Published year must be positive"))]
     pub published_year: Option<i32>,
 }
 
@@ -55,6 +68,11 @@ pub async fn post_book<R: BookRepository>(
     State(repo): State<Arc<R>>,
     Json(payload): Json<CreateBook>,
 ) -> Result<(StatusCode, Json<Book>), (StatusCode, String)> {
+    if let Err(e) = payload.validate() {
+        return Err((StatusCode::BAD_REQUEST, e.to_string()));
+    }
+
+    // create and persist
     let book = Book::new(payload.title, payload.author, payload.published_year);
     repo.create(book.clone())
         .await
@@ -67,7 +85,10 @@ pub async fn put_book<R: BookRepository>(
     Path(id): Path<String>,
     Json(payload): Json<UpdateBook>,
 ) -> Result<Json<Book>, (StatusCode, String)> {
-    // Primero obtenemos el libro para conservar created_at, id, etc.
+    if let Err(e) = payload.validate() {
+        return Err((StatusCode::BAD_REQUEST, e.to_string()));
+    }
+
     let mut book = match repo.get_by_id(&id).await {
         Ok(Some(b)) => b,
         Ok(None)    => return Err((StatusCode::NOT_FOUND, format!("Book {} not found", id))),
@@ -78,6 +99,7 @@ pub async fn put_book<R: BookRepository>(
     if let Some(author) = payload.author { book.author = author; }
     if payload.published_year.is_some() { book.published_year = payload.published_year; }
 
+    // Persist
     repo.update(book.clone())
         .await
         .map(Json)
@@ -88,10 +110,10 @@ pub async fn delete_book<R: BookRepository>(
     State(repo): State<Arc<R>>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    match repo.delete(&id).await {
-        Ok(_)        => Ok(StatusCode::NO_CONTENT),
-        Err(e)       => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
-    }
+    repo.delete(&id)
+        .await
+        .map(|_| StatusCode::NO_CONTENT)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 /// GET /books/search?title=…&author=…
