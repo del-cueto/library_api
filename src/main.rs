@@ -4,44 +4,52 @@ mod app;
 mod infra;
 mod handlers;
 
-use axum::{Router, routing::get};
-use std::net::SocketAddr;
-use config::mod_config;
-use infra::sqlite_book_repository::SqliteBookRepository;
-use handlers::book_handler::{
+use axum::{
+    Router,
+    routing::{get, post, put, delete},
+    serve,
+};
+use tokio::net::TcpListener;
+use sqlx::sqlite::SqlitePoolOptions;
+use std::{net::SocketAddr, sync::Arc};
+use tracing_subscriber;
+
+use crate::config::{load_env, database_url};
+use crate::infra::sqlite_book_repository::SqliteBookRepository;
+use crate::handlers::book_handler::{
     get_books, get_book, post_book,
     put_book, delete_book, search_books,
 };
-use sqlx::sqlite::SqlitePoolOptions;
-use std::sync::Arc;
-use tracing_subscriber;
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
-    mod_config::load_env();
+    load_env();
 
-    let db_url = mod_config::database_url();
     let pool = SqlitePoolOptions::new()
-        .connect(&db_url)
+        .connect(&database_url())
         .await
         .expect("Failed to connect to DB");
-
     let repo = Arc::new(SqliteBookRepository { pool });
 
     let app = Router::new()
-        .route("/books", get(book_handler::get_books, book_handler::post_book))
-        .route("/books/:id", get(book_handler::get_book))
-        .route("/books/:id", put(book_handler::put_book))
-        .route("/books/:id", delete(book_handler::delete_book))
-        .route("/books/search", get(book_handler::search_books))
+        .route("/books", get(get_books).post(post_book))
+        .route(
+            "/books/:id",
+            get(get_book)
+                .put(put_book)
+                .delete(delete_book),
+        )
+        .route("/books/search", get(search_books))
         .with_state(repo);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     println!("🚀 Server running on http://{}", addr);
 
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
+    let listener = TcpListener::bind(addr)
         .await
-        .unwrap();
+        .expect("Failed to bind address");
+
+    // axum::serve reemplaza a hyper::Server en Axum 0.7 :contentReference[oaicite:0]{index=0}
+    serve(listener, app).await.unwrap();
 }
