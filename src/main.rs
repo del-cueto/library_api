@@ -8,7 +8,10 @@ use axum::{Router, routing::get};
 use std::net::SocketAddr;
 use config::mod_config;
 use infra::sqlite_book_repository::SqliteBookRepository;
-use handlers::book_handle::{get_books, get_book, post_book };
+use handlers::book_handler::{
+    get_books, get_book, post_book,
+    put_book, delete_book, search_books,
+};
 use sqlx::sqlite::SqlitePoolOptions;
 use std::sync::Arc;
 use tracing_subscriber;
@@ -29,6 +32,9 @@ async fn main() {
     let app = Router::new()
         .route("/books", get(book_handler::get_books, book_handler::post_book))
         .route("/books/:id", get(book_handler::get_book))
+        .route("/books/:id", put(book_handler::put_book))
+        .route("/books/:id", delete(book_handler::delete_book))
+        .route("/books/search", get(book_handler::search_books))
         .with_state(repo);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
