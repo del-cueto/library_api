@@ -1,146 +1,198 @@
-library_api
+# library_api
 
 A RESTful API in Rust for managing a library of books using SQLite and JWT authentication.
 
-Prerequisites
+---
 
-Rust (1.70+ recommended) and Cargo installed.
+## Table of Contents
 
-SQLite installed (for local development).
+1. [Prerequisites](#prerequisites)
+2. [Clone the Repository](#clone-the-repository)
+3. [Environment Setup](#environment-setup)
+4. [Database Migrations](#database-migrations)
+5. [Build & Run](#build--run)
+6. [API Endpoints](#api-endpoints)
+7. [Testing](#testing)
+8. [Examples (curl & Postman)](#examples-curl--postman)
+9. [Architecture & Documentation](#architecture--documentation)
+10. [Logging](#logging)
+11. [Optional Features](#optional-features)
+12. [Docker (Optional)](#docker-optional)
 
-sqlx-cli installed for running migrations:
+---
 
-cargo install sqlx-cli --no-default-features --features sqlite
+## Prerequisites
 
-Git installed to clone the repository.
+- **Rust** (1.70+ recommended) and **Cargo**
+- **SQLite** for local development
+- **sqlx-cli** for migrations:
+  ```bash
+  cargo install sqlx-cli --no-default-features --features sqlite
+  ```  
+- **Git** to clone the repository
 
-Clone the repository
+---
 
+## Clone the Repository
+
+```bash
 git clone git@github.com:del-cueto/library_api.git
 cd library_api
+```
 
-Setup environment variables
+---
 
-Create a .env file in the project root with:
+## Environment Setup
 
+Create a `.env` file in the project root:
+
+```env
 DATABASE_URL=sqlite://./library.db
 JWT_SECRET=your-secret-key
+```
 
-DATABASE_URL can be a relative path (sqlite://./library.db) for local file library.db in project root.
+- `DATABASE_URL` can be relative (`./library.db`) or absolute.
+- `JWT_SECRET` should be a strong random string.
 
-JWT_SECRET should be a strong, random string.
+> **Note:** The app uses `dotenvy`, so `.env` is loaded automatically.
 
-Load the environment variables before running the app (shell will pick up .env automatically if using dotenvy).
+---
 
-Run database migrations
+## Database Migrations
 
-Ensure sqlx-cli is installed and the .env is loaded.
+Ensure `.env` is loaded:
 
-# If using dotenvy: load .env then run:
-# In bash: source .env
+```bash
+source .env
+```
+
+Run migrations:
+
+```bash
 sqlx migrate run
+```
 
-This creates the books table in library.db.
+This creates the `books` table in `library.db`.
 
-Build and run the application
+> **Screenshot:**  
+> _Add a screenshot of the migration command and result here._
+
+---
+
+## Build & Run
 
 Compile in release mode:
 
+```bash
 cargo build --release
+```
 
 Run the server:
 
-# Ensure .env is loaded or set env vars manually
+```bash
 cargo run --bin library_api
+```
 
-By default, the server listens on http://127.0.0.1:3000.
+By default, the server listens on `http://127.0.0.1:3000`.
 
-API Endpoints
+> **Screenshot:**  
+> _Add a screenshot of the server startup log here._
 
-POST /login
+---
 
-Body JSON: { "username": "admin", "password": "password" }
+## API Endpoints
 
-Returns: JWT string
+### Public
 
-GET /books
+- `POST /login`
+    - Body:
+      ```json
+      { "username": "admin", "password": "password" }
+      ```
+    - Returns: JWT token (string)
 
-Public: list all books
+- `GET /books`
+    - List all books
 
-GET /books/{id}
+- `GET /books/{id}`
+    - Get a book by ID
 
-Public: get a book by ID
+- `GET /books/search?title=...&author=...`
+    - Search by title and/or author (partial match)
 
-GET /books/search?title=...&author=...
+### Protected (requires `Authorization: Bearer <token>`)
 
-Public: search by title and/or author (partial match)
+- `POST /books`
+    - Body:
+      ```json
+      { "title":"...", "author":"...", "published_year":2025 }
+      ```
 
-POST /books
+- `PUT /books/{id}`
+    - Body: any subset of fields to update
 
-Protected: requires Authorization: Bearer <token> header
+- `DELETE /books/{id}`
 
-Body JSON: { "title": "...", "author": "...", "published_year": 2025 }
+---
 
-PUT /books/{id}
+## Testing
 
-Protected: requires JWT
+Run all tests (unit + integration):
 
-Body JSON: any of fields to update: { "title": "New Title" }
-
-DELETE /books/{id}
-
-Protected: requires JWT
-
-Testing
-
-Run all tests (unit and integration):
-
+```bash
 cargo test
+```
 
-Integration tests use an in-memory SQLite database and cover login, CRUD, search, and error cases.
+Integration tests use an in-memory SQLite DB and cover login, CRUD, search, and error cases.
 
-Using Postman or curl
+> **Screenshot:**  
+> _Output of caro test._
+![img.png](img.png)
+---
 
-Example with curl:
+## Examples (curl & Postman)
 
+#### curl
+
+```bash
 # Obtain token
-TOKEN=$(curl -s -X POST http://127.0.0.1:3000/login \
--H 'Content-Type: application/json' \
--d '{"username":"admin","password":"password"}')
+TOKEN=$(curl -s -X POST http://127.0.0.1:3000/login   -H 'Content-Type: application/json'   -d '{"username":"admin","password":"password"}')
 
 # Create a book
-curl -X POST http://127.0.0.1:3000/books \
--H "Authorization: Bearer $TOKEN" \
--H 'Content-Type: application/json' \
--d '{"title":"Test","author":"Me","published_year":2025}'
+curl -X POST http://127.0.0.1:3000/books   -H "Authorization: Bearer $TOKEN"   -H 'Content-Type: application/json'   -d '{"title":"Test","author":"Me","published_year":2025}'
 
 # List books
 curl http://127.0.0.1:3000/books
+```
 
-Logging
+> **Postman Collection:**  
+> _You can get the original postman collection here._
+https://www.postman.com/flight-physicist-5822942/library-api/collection/3ue5ydg/library-api?action=share&creator=34740066
+---
 
-The application uses tracing for structured logging. Logs appear on stdout.
+## Architecture & Documentation
 
-Optional: Pagination
+- **Clean Architecture**: separation into `domain`, `app` (service logic), `infra` (DB), `handlers` (HTTP), `middleware`.
+- **Web Framework**: [axum] for routing and extractors.
+- **Error Handling**: centralized via `AppError` enum and `IntoResponse` implementations, returning JSON:
+  ```json
+  { "error": "message" }
+  ```
 
-If implemented, add query parameters ?page=1&per_page=10 to GET /books.
 
-Optional: Docker
+---
 
-Dockerfile is provided for containerizing the app. To build:
+## Logging
 
-docker build -t library_api:latest .
+Structured logging with [`tracing`]: spans around request handlers. Logs output to stdout.
 
-To run with volume for persistence:
+---
 
-mkdir -p data
-docker run -d -p 3000:3000 \
--e DATABASE_URL="sqlite:////data/library.db" \
--e JWT_SECRET="your-secret" \
--v "$(pwd)/data":/data \
---name library_api library_api:latest
 
-README Maintenance
+---
 
-Update this file with any new instructions or features. Include screenshots or links to documentation as needed.
-
+**References**
+- [axum](https://crates.io/crates/axum)
+- [sqlx](https://crates.io/crates/sqlx)
+- [validator](https://crates.io/crates/validator)
+- [jsonwebtoken](https://crates.io/crates/jsonwebtoken)
