@@ -4,6 +4,7 @@ mod app;
 mod infra;
 mod handlers;
 mod middleware;
+pub mod error;
 
 use axum::{Router, routing::get, routing::post, middleware as axum_middleware};
 use axum::routing::put;

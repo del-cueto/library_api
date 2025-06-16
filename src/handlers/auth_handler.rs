@@ -1,7 +1,8 @@
-use axum::{Json, http::StatusCode};
+use axum::Json;
 use serde::{Deserialize, Serialize};
 use jsonwebtoken::{encode, EncodingKey, Header};
-use crate::config::jwt_secret;
+use chrono::Utc;
+use crate::{config::jwt_secret, error::AppError};
 
 #[derive(Deserialize)]
 pub struct Login {
@@ -15,28 +16,24 @@ struct Claims {
     exp: usize,
 }
 
-/// POST /login
-pub async fn login(Json(payload): Json<Login>) -> Result<Json<String>, (StatusCode, String)> {
+pub async fn login(Json(payload): Json<Login>) -> Result<Json<String>, AppError> {
     if payload.username != "admin" || payload.password != "password" {
-        return Err((StatusCode::UNAUTHORIZED, "Invalid credentials".into()));
+        return Err(AppError::Auth);
     }
 
-    let expiration = chrono::Utc::now()
+    let expiration = Utc::now()
         .checked_add_signed(chrono::Duration::hours(1))
         .expect("valid timestamp")
         .timestamp() as usize;
 
-    let claims = Claims {
-        sub: payload.username.clone(),
-        exp: expiration,
-    };
-    
-    //sign the token
+    let claims = Claims { sub: payload.username.clone(), exp: expiration };
+
     let token = encode(
         &Header::default(),
         &claims,
         &EncodingKey::from_secret(jwt_secret().as_ref()),
-    ).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    )
+        .map_err(|e| AppError::Db(e.into()))?;
 
     Ok(Json(token))
 }

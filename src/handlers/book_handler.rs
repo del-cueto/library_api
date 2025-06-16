@@ -10,9 +10,9 @@ use validator::Validate;
 use crate::{
     domain::book::Book,
     app::book_repository::BookRepository,
+    error::AppError,
 };
 
-/// POST /books con validaciones
 #[derive(Deserialize, Validate)]
 pub struct CreateBook {
     #[validate(length(min = 1, message = "Title cannot be empty"))]
@@ -25,7 +25,6 @@ pub struct CreateBook {
     pub published_year: Option<i32>,
 }
 
-///  PUT /books/:id con validaciones
 #[derive(Deserialize, Validate)]
 pub struct UpdateBook {
     #[validate(length(min = 1, message = "Title cannot be empty"))]
@@ -46,86 +45,65 @@ pub struct SearchParams {
 
 pub async fn get_books<R: BookRepository>(
     State(repo): State<Arc<R>>,
-) -> Result<Json<Vec<Book>>, (StatusCode, String)> {
-    repo.get_all()
-        .await
-        .map(Json)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+) -> Result<Json<Vec<Book>>, AppError> {
+    let books = repo.get_all().await?;
+    Ok(Json(books))
 }
 
 pub async fn get_book<R: BookRepository>(
     State(repo): State<Arc<R>>,
     Path(id): Path<String>,
-) -> Result<Json<Book>, (StatusCode, String)> {
-    match repo.get_by_id(&id).await {
-        Ok(Some(book)) => Ok(Json(book)),
-        Ok(None)       => Err((StatusCode::NOT_FOUND, format!("Book {} not found", id))),
-        Err(e)         => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
-    }
+) -> Result<Json<Book>, AppError> {
+    let book = repo
+        .get_by_id(&id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Book {} not found", id)))?;
+    Ok(Json(book))
 }
 
 pub async fn post_book<R: BookRepository>(
     State(repo): State<Arc<R>>,
     Json(payload): Json<CreateBook>,
-) -> Result<(StatusCode, Json<Book>), (StatusCode, String)> {
-    if let Err(e) = payload.validate() {
-        return Err((StatusCode::BAD_REQUEST, e.to_string()));
-    }
-
-    // create and persist
+) -> Result<(StatusCode, Json<Book>), AppError> {
+    payload.validate().map_err(|e| AppError::Validation(e.to_string()))?;
     let book = Book::new(payload.title, payload.author, payload.published_year);
-    repo.create(book.clone())
-        .await
-        .map(|saved| (StatusCode::CREATED, Json(saved)))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    let saved = repo.create(book).await?;
+    Ok((StatusCode::CREATED, Json(saved)))
 }
 
 pub async fn put_book<R: BookRepository>(
     State(repo): State<Arc<R>>,
     Path(id): Path<String>,
     Json(payload): Json<UpdateBook>,
-) -> Result<Json<Book>, (StatusCode, String)> {
-    if let Err(e) = payload.validate() {
-        return Err((StatusCode::BAD_REQUEST, e.to_string()));
-    }
-
-    let mut book = match repo.get_by_id(&id).await {
-        Ok(Some(b)) => b,
-        Ok(None)    => return Err((StatusCode::NOT_FOUND, format!("Book {} not found", id))),
-        Err(e)      => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
-    };
-
+) -> Result<Json<Book>, AppError> {
+    payload.validate().map_err(|e| AppError::Validation(e.to_string()))?;
+    let mut book = repo
+        .get_by_id(&id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Book {} not found", id)))?;
     if let Some(title) = payload.title { book.title = title; }
     if let Some(author) = payload.author { book.author = author; }
-    if payload.published_year.is_some() { book.published_year = payload.published_year; }
-
-    // Persist
-    repo.update(book.clone())
-        .await
-        .map(Json)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    if payload.published_year.is_some() {
+        book.published_year = payload.published_year;
+    }
+    let updated = repo.update(book).await?;
+    Ok(Json(updated))
 }
 
 pub async fn delete_book<R: BookRepository>(
     State(repo): State<Arc<R>>,
     Path(id): Path<String>,
-) -> Result<StatusCode, (StatusCode, String)> {
-    repo.delete(&id)
-        .await
-        .map(|_| StatusCode::NO_CONTENT)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+) -> Result<StatusCode, AppError> {
+    repo.delete(&id).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
-/// GET /books/search?title=…&author=…
 pub async fn search_books<R: BookRepository>(
     State(repo): State<Arc<R>>,
     Query(params): Query<SearchParams>,
-) -> Result<Json<Vec<Book>>, (StatusCode, String)> {
+) -> Result<Json<Vec<Book>>, AppError> {
     let title = params.title.as_deref();
     let author = params.author.as_deref();
-
-    repo.search(title, author)
-        .await
-        .map(Json)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    let books = repo.search(title, author).await?;
+    Ok(Json(books))
 }
