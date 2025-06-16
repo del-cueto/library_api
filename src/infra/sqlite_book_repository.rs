@@ -22,4 +22,22 @@ impl BookRepository for SqliteBookRepository {
             .await?;
         Ok(book)
     }
+
+    async fn create(&self, book: Book) -> Result<Book, anyhow::Error> {
+        let query = r#"
+            INSERT INTO books (id, title, author, published_year, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5)
+        "#;
+
+        sqlx::query(query)
+            .bind(&book.id)
+            .bind(&book.title)
+            .bind(&book.author)
+            .bind(book.published_year)
+            .bind(&book.created_at)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(book)
+    }
 }
