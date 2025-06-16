@@ -4,8 +4,8 @@ use axum::{
     http::StatusCode,
 };
 use serde::Deserialize;
-use std::sync::Arc;
-use validator::Validate;
+use std::{sync::Arc, borrow::Cow};
+use validator::{Validate, ValidationErrors};
 
 use crate::{
     domain::book::Book,
@@ -65,7 +65,9 @@ pub async fn post_book<R: BookRepository>(
     State(repo): State<Arc<R>>,
     Json(payload): Json<CreateBook>,
 ) -> Result<(StatusCode, Json<Book>), AppError> {
-    payload.validate().map_err(|e| AppError::Validation(e.to_string()))?;
+    if let Err(e) = payload.validate() {
+        return Err(AppError::Validation(flatten_errors(e)));
+    }
     let book = Book::new(payload.title, payload.author, payload.published_year);
     let saved = repo.create(book).await?;
     Ok((StatusCode::CREATED, Json(saved)))
@@ -76,13 +78,19 @@ pub async fn put_book<R: BookRepository>(
     Path(id): Path<String>,
     Json(payload): Json<UpdateBook>,
 ) -> Result<Json<Book>, AppError> {
-    payload.validate().map_err(|e| AppError::Validation(e.to_string()))?;
+    if let Err(e) = payload.validate() {
+        return Err(AppError::Validation(flatten_errors(e)));
+    }
     let mut book = repo
         .get_by_id(&id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Book {} not found", id)))?;
-    if let Some(title) = payload.title { book.title = title; }
-    if let Some(author) = payload.author { book.author = author; }
+    if let Some(title) = payload.title {
+        book.title = title;
+    }
+    if let Some(author) = payload.author {
+        book.author = author;
+    }
     if payload.published_year.is_some() {
         book.published_year = payload.published_year;
     }
@@ -106,4 +114,21 @@ pub async fn search_books<R: BookRepository>(
     let author = params.author.as_deref();
     let books = repo.search(title, author).await?;
     Ok(Json(books))
+}
+
+fn flatten_errors(e: ValidationErrors) -> String {
+    e.field_errors()
+        .iter()
+        .flat_map(|(field, errs)| {
+            errs.iter().map(move |err| {
+                let msg = err
+                    .message
+                    .clone() // clonamos el Option<Cow<str>>
+                    .unwrap_or_else(|| Cow::Borrowed("invalid"))    // si no hay mensaje, usamos "invalid"
+                    .into_owned(); // obtenemos un String
+                format!("{}: {}", field, msg)
+            })
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
