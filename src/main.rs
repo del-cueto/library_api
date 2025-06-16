@@ -28,6 +28,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/books", get(book_handler::get_books))
+        .route("/books/:id", get(book_handler::get_book))
         .with_state(repo);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));

@@ -14,4 +14,12 @@ impl BookRepository for SqliteBookRepository {
             .await?;
         Ok(books)
     }
+
+    async fn get_by_id(&self, id: &str) -> Result<Option<Book>, anyhow::Error> {
+        let book = sqlx::query_as::<_, Book>("SELECT * FROM books WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(book)
+    }
 }
