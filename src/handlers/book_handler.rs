@@ -132,3 +132,24 @@ fn flatten_errors(e: ValidationErrors) -> String {
         .collect::<Vec<_>>()
         .join(", ")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{CreateBook, flatten_errors};
+    use validator::Validate;
+
+    #[test]
+    fn flatten_errors_formats_validator_messages() {
+        let bad = CreateBook {
+            title: "".into(),
+            author: "".into(),
+            published_year: Some(-1),
+        };
+        let errs = bad.validate().expect_err("debe fallar validación");
+        let out = flatten_errors(errs);
+        assert!(out.contains("title: Title cannot be empty"));
+        assert!(out.contains("author: Author cannot be empty"));
+        assert!(out.contains("published_year: Published year must be positive"));
+        assert!(!out.contains('\n'));
+    }
+}

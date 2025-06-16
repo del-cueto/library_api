@@ -179,3 +179,97 @@ async fn post_book_without_auth_is_unauthorized() {
     let json: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(json["error"], "Unauthorized");
 }
+
+#[tokio::test]
+async fn search_books_filters_and_combines_params() {
+    let base = spawn_app().await;
+    let client = reqwest::Client::new();
+    let token = get_token(&base).await;
+
+    // Creamos tres libros distintos
+    let books = vec![
+        json!({ "title": "Rust in Action", "author": "Tim", "published_year": 2021 }),
+        json!({ "title": "Programming Rust", "author": "Jim", "published_year": 2019 }),
+        json!({ "title": "Rust Cookbook", "author": "Vignesh", "published_year": 2020 }),
+    ];
+    for b in &books {
+        let res = client
+            .post(&format!("{}/books", &base))
+            .bearer_auth(&token)
+            .json(b)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::CREATED);
+    }
+
+    // 1) Buscar por autor “Jim”
+    let res = client
+        .get(&format!("{}/books/search?author=Jim", &base))
+        .send()
+        .await
+        .unwrap();
+    let list: Vec<serde_json::Value> = res.json().await.unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0]["author"], "Jim");
+
+    // 2) Buscar por título parcial “Rust”
+    let res = client
+        .get(&format!("{}/books/search?title=Rust", &base))
+        .send()
+        .await
+        .unwrap();
+    let list: Vec<serde_json::Value> = res.json().await.unwrap();
+    assert_eq!(list.len(), 3);
+
+    // 3) Combinar título “Rust” y autor “Vignesh”
+    let res = client
+        .get(&format!("{}/books/search?title=Rust&author=Vignesh", &base))
+        .send()
+        .await
+        .unwrap();
+    let list: Vec<serde_json::Value> = res.json().await.unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0]["author"], "Vignesh");
+}
+
+#[tokio::test]
+async fn put_book_invalid_payload_returns_400() {
+    let base = spawn_app().await;
+    let client = reqwest::Client::new();
+    let token = get_token(&base).await;
+
+    // Crear un libro válido
+    let created: serde_json::Value = client
+        .post(&format!("{}/books", &base))
+        .bearer_auth(&token)
+        .json(&json!({
+            "title": "Clean Code",
+            "author": "Robert",
+            "published_year": 2008
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let id = created["id"].as_str().unwrap();
+
+    // Intentar PUT con título vacío
+    let res = client
+        .put(&format!("{}/books/{}", &base, id))
+        .bearer_auth(&token)
+        .json(&json!({ "title": "" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    let err: serde_json::Value = res.json().await.unwrap();
+    assert!(err["error"]
+        .as_str()
+        .unwrap()
+        .contains("Title cannot be empty"));
+}
+
